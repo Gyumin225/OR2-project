@@ -321,8 +321,11 @@ else:
             stall_gens=0,
             label=f"pc={pc_val}",
         )
-    print("\\n--- 가중치 민감도 비교 (base / fairness / efficiency) ---")
+    print("\\n--- 가중치 민감도 비교 (base / fairness / efficiency, 동일 base 가중치 재평가 포함) ---")
+    base_weights = active_mod.WEIGHT_PRESETS["base"]
     best_res = None
+    best_base_cost = float("inf")
+    best_w_name = ""
     for w_name, w_vec in active_mod.WEIGHT_PRESETS.items():
         res_w = active_mod.run_multi_seed(
             seeds=SEEDS,
@@ -334,9 +337,34 @@ else:
             weights=w_vec,
             label=f"weight={w_name}",
         )
-        if best_res is None or res_w.best.cost < best_res.best.cost:
+        base_cost, _, _ = active_mod.evaluate_schedule(
+            active_mod.decode(res_w.best), weights=base_weights
+        )
+        if base_cost < best_base_cost:
+            best_base_cost = base_cost
             best_res = res_w
-        print(f"  -> {w_name} 최선 G1~G7: {[round(x, 4) for x in res_w.best.g_vals]}")
+            best_w_name = w_name
+        print(
+            f"  -> {w_name} 최선: 자체 비용 C_{w_name}={res_w.best.cost:.4f} | "
+            f"base 기준 재평가 C_base={base_cost:.4f} | "
+            f"G1~G7={[round(x, 4) for x in res_w.best.g_vals]}"
+        )
+    print(f"\\n🏆 [동일 기준(base 가중치) 재평가 최종안 선정: weight={best_w_name}, C_base={best_base_cost:.4f}]")
+    if best_w_name != "base":
+        best_res_base = active_mod.GAResult(
+            best=best_res.best.clone(),
+            history=best_res.history,
+            evaluations=best_res.evaluations,
+            elapsed_sec=best_res.elapsed_sec,
+            stopped_gen=best_res.stopped_gen,
+        )
+        c_b, f_b, g_b = active_mod.evaluate_schedule(
+            active_mod.decode(best_res_base.best), weights=base_weights
+        )
+        best_res_base.best.cost = c_b
+        best_res_base.best.fitness = f_b
+        best_res_base.best.g_vals = g_b
+        best_res = best_res_base
     print(active_mod.format_report(best_res))
 """
     code(cell4_code)
