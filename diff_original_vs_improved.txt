@@ -1,0 +1,115 @@
+--- share_gyu/gyumin_original.py	2026-11-16 04:51:01.844692677 +0000
++++ share_gyu/gyumin_improved.py	2026-11-16 04:51:01.842692698 +0000
+@@ -465,9 +465,10 @@
+     )
+ 
+ 
+-def mutate_once(chrom: Chromosome, rng: random.Random) -> None:
+-    """실행 가능성 보존 4종 변이 중 하나를 균등 확률로 적용"""
+-    op = rng.randrange(4)
++def mutate_once(chrom: Chromosome, rng: random.Random, weights: Optional[Sequence[float]] = None) -> None:
++    """실행 가능성 보존 4종 변이 중 하나를 적용 (weights 없으면 균등 = 원본)"""
++    # [improved] weights: 규민 2장 설계의 연산자 비율 (a, b, c, d) = (0.4, 0.2, 0.3, 0.1)
++    op = rng.randrange(4) if weights is None else rng.choices(range(4), weights)[0]
+     if op == 0:
+         # (a) 일자 교환 (Swap days in pi)
+         i, j = rng.sample(range(N_DAYS), 2)
+@@ -487,10 +488,10 @@
+     chrom.invalidate()
+ 
+ 
+-def mutate(chrom: Chromosome, pm: float, rng: random.Random) -> None:
++def mutate(chrom: Chromosome, pm: float, rng: random.Random, weights: Optional[Sequence[float]] = None) -> None:
+     """염색체당 확률 pm으로 변이 적용"""
+     if rng.random() < pm:
+-        mutate_once(chrom, rng)
++        mutate_once(chrom, rng, weights)
+ 
+ 
+ # ---------------------------------------------------------------------------
+@@ -501,13 +502,17 @@
+     pop_size: int = 60          # 개체군 크기 N
+     max_gens: int = 500         # 최대 세대 (60 + 500*58 = 29,060회 ≈ 30,000회)
+     stall_gens: int = 150       # 정체 종료 기준 세대 (0이면 최대 세대까지 고정 실행)
+-    pc: float = 0.9             # 교차 확률 (4장 실험: 0.0, 0.5, 0.9 비교)
++    pc: float = 0.6             # [improved] 규민 2장 설계값 0.6 (원본 코드 0.9). 4장 실험: 0.0, 0.5, 0.9 비교
+     pm: float = 0.3             # 변이 확률 (염색체당)
+     tournament_k: int = 3       # 토너먼트 크기
+     elite_size: int = 2         # 엘리트 보존 수
+     dedup: bool = True          # 디코딩 일정 기준 중복 제거
+     max_dedup_muts: int = 50    # 중복 해소 최대 추가 변이 횟수
+     seed: int = 42
++    # [improved] on stall, replace this share of the non-elite population with new random schedules
++    # (random immigrants) and keep going, instead of stopping. 0 = original behaviour (stop).
++    restart_frac: float = 0.0
++    mut_weights: Optional[Tuple[float, ...]] = None   # [improved] None = uniform (original)
+     weights: Tuple[float, ...] = WEIGHT_PRESETS["base"]
+     g0: Tuple[float, ...] = G0_DEFAULT
+     g_star: Tuple[float, ...] = G_STAR_DEFAULT
+@@ -545,6 +550,7 @@
+     ]
+ 
+     stopped_gen = 0
++    restarts = 0
+     for gen in range(1, cfg.max_gens + 1):
+         pop.sort(key=lambda c: c.cost if c.cost is not None else float("inf"))
+ 
+@@ -562,12 +568,12 @@
+             p1 = tournament_select(pop, cfg.tournament_k, rng)
+             p2 = tournament_select(pop, cfg.tournament_k, rng)
+             child = crossover(p1, p2, cfg.pc, rng)
+-            mutate(child, cfg.pm, rng)
++            mutate(child, cfg.pm, rng, cfg.mut_weights)
+ 
+             if cfg.dedup:
+                 attempts = 0
+                 while schedule_key(child) in seen_keys and attempts < cfg.max_dedup_muts:
+-                    mutate_once(child, rng)
++                    mutate_once(child, rng, cfg.mut_weights)
+                     attempts += 1
+ 
+             seen_keys.add(schedule_key(child))
+@@ -588,7 +594,24 @@
+         stopped_gen = gen
+ 
+         if cfg.stall_gens > 0 and (gen - last_improve_gen) >= cfg.stall_gens:
+-            break
++            if cfg.restart_frac <= 0:
++                break
++            pop.sort(key=lambda c: c.cost if c.cost is not None else float("inf"))
++            n_new = int(round(cfg.restart_frac * (cfg.pop_size - cfg.elite_size)))
++            keep = pop[: cfg.pop_size - n_new]
++            keys = {schedule_key(c) for c in keep}
++            fresh: List[Chromosome] = []
++            while len(fresh) < n_new:
++                ind = random_chromosome(rng)
++                if schedule_key(ind) in keys:
++                    continue
++                keys.add(schedule_key(ind))
++                evaluate_chrom(ind, cfg.weights, cfg.g0, cfg.g_star)
++                evals += 1
++                fresh.append(ind)
++            pop = keep + fresh
++            restarts += 1
++            last_improve_gen = gen
+ 
+     assert is_feasible(decode(best))
+     elapsed = time.perf_counter() - t0
+@@ -779,7 +802,7 @@
+ # ---------------------------------------------------------------------------
+ def run_multi_seed(
+     seeds: int = 8,
+-    pc: float = 0.9,
++    pc: float = 0.6,
+     pm: float = 0.3,
+     pop_size: int = 60,
+     max_gens: int = 500,
+@@ -830,7 +853,7 @@
+     parser.add_argument("--mode", choices=["demo", "single", "ablation"], default="demo")
+     parser.add_argument("--seeds", type=int, default=8)
+     parser.add_argument("--seed", type=int, default=42)
+-    parser.add_argument("--pc", type=float, default=0.9)
++    parser.add_argument("--pc", type=float, default=0.6)  # [improved]
+     parser.add_argument("--pm", type=float, default=0.3)
+     parser.add_argument("--pop-size", type=int, default=60)
+     parser.add_argument("--max-gens", type=int, default=500)
