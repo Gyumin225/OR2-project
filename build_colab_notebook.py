@@ -166,6 +166,7 @@ def build_notebook() -> Path:
 2. **Cell 3**을 실행해 8종 완료 판정 테스트 통과 여부를 확인합니다.
 3. **Cell 4**에서 버전·실행 모드·시드 등을 선택해 GA 최적화를 실행합니다.
 4. **Cell 5~6**에서 교수님 템플릿 양식(구장별 대진표 & 이동거리표)과 수렴 곡선을 확인합니다.
+5. 기본 설정은 **시드 0–239(240개) 다중 시드 실행**입니다(`MODE = multi_seed`, `SEEDS = 240`). 시드 8 최선 일정만 다시 보려면 Cell 4의 `MODE`를 `best_repro`로 바꿉니다.
 """
     )
 
@@ -250,9 +251,9 @@ gyumin_original.run_completion_tests()
     cell4_code = """
 #@title ⚙️ 3. GA 탐색 실행 (파라미터 조정 가능) { display-mode: "form" }
 VERSION = "gyumin_improved (pc=0.6)" #@param ["gyumin_improved (pc=0.6)", "gyumin_original (pc=0.9)"]
-MODE = "best_repro (최선 해 재현)" #@param ["best_repro (최선 해 재현)", "single (단일 시드)", "multi_seed (다중 시드)", "ablation (교차율·가중치 비교)"]
+MODE = "multi_seed (다중 시드)" #@param ["best_repro (최선 해 재현)", "single (단일 시드)", "multi_seed (다중 시드)", "ablation (교차율·가중치 비교)"]
 SEED = 8 #@param {type:"integer"}
-SEEDS = 8 #@param {type:"integer"}
+SEEDS = 240 #@param {type:"integer"}
 POP_SIZE = 60 #@param {type:"integer"}
 MAX_GENS = 500 #@param {type:"integer"}
 STALL_GENS = 150 #@param {type:"integer"}
